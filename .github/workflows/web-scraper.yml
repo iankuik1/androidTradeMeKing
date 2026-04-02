@@ -1,0 +1,182 @@
+name: Web Scraper - TradeMe Listings
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: false
+        default: ''
+      max_pages:
+        description: 'Max pages to scrape'
+        required: false
+        default: '3'
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+    # Also run daily at midnight for full catalog
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: trademe-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape-trademe:
+    runs-on: ubuntu-latest
+    name: Scrape TradeMe Listings
+
+    permissions:
+      contents: write
+      artifacts: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: '.github/scraper/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r .github/scraper/requirements.txt
+
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: Run web scraper
+        id: scraper
+        run: |
+          cd .github/scraper
+          python scraper.py
+          
+          # Check if listings were collected
+          if [ -f "../../listings.json" ]; then
+            COUNT=$(python -c "import json; data = json.load(open('../../listings.json')); print(data['total_count'])")
+            echo "listing_count=$COUNT" >> $GITHUB_OUTPUT
+            echo "Successfully scraped $COUNT listings"
+          else
+            echo "listing_count=0" >> $GITHUB_OUTPUT
+            echo "WARNING: No listings file generated"
+          fi
+
+      - name: Validate scraped data
+        run: |
+          python << 'EOF'
+          import json
+          from pathlib import Path
+          
+          listing_file = Path("listings.json")
+          if listing_file.exists():
+              with open(listing_file) as f:
+                  data = json.load(f)
+              
+              print(f"Total listings: {data['total_count']}")
+              print(f"Timestamp: {data['timestamp']}")
+              
+              if data['total_count'] > 0:
+                  sample = data['listings'][0]
+                  print(f"\nSample listing:")
+                  for key, value in sample.items():
+                      if key != 'imageUrl':  # Skip long URLs in output
+                          print(f"  {key}: {str(value)[:100]}")
+              else:
+                  print("WARNING: No listings were scraped!")
+          else:
+              print("ERROR: listings.json not found!")
+              exit(1)
+          EOF
+
+      - name: Upload listings to artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: trademe-listings
+          path: listings.json
+          retention-days: 7
+
+      - name: Commit listings data
+        if: steps.scraper.outputs.listing_count > 0
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Only commit if there are changes and we have listings
+          if git diff --quiet listings.json; then
+            echo "No changes to commit"
+          else
+            git add listings.json
+            git commit -m "data: update scraped TradeMe listings
+
+- Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+- Total listings: ${{ steps.scraper.outputs.listing_count }}
+- Automated by: web-scraper workflow" || echo "Nothing to commit"
+            git push || echo "Nothing to push"
+          fi
+      
+      - name: Create release with listings
+        if: steps.scraper.outputs.listing_count > 0 && github.event_name == 'schedule'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: listings.json
+          tag_name: listings-${{ github.run_number }}
+          body: |
+            # TradeMe Scraped Listings
+            
+            **Listing Count**: ${{ steps.scraper.outputs.listing_count }}  
+            **Scraped At**: ${{ github.run_number }}  
+            **Source**: Web Scraper  
+            
+            This release contains the latest scraped listings from TradeMe.co.nz
+            
+            ## Usage
+            
+            Download `listings.json` to use in your application.
+            
+            ### Data Format
+            
+            ```json
+            {
+              "timestamp": "2024-01-15T12:30:00",
+              "total_count": 1250,
+              "listings": [
+                {
+                  "id": "123456",
+                  "title": "Item Title",
+                  "price": 99.99,
+                  "priceDisplay": "$99.99",
+                  "imageUrl": "https://...",
+                  "category": "Electronics",
+                  "region": "Auckland",
+                  "url": "https://www.trademe.co.nz/...",
+                  "scraped_at": "2024-01-15T12:30:00",
+                  "source": "webscraper"
+                }
+              ]
+            }
+            ```
+
+      - name: Send notification on failure
+        if: failure()
+        run: |
+          echo "⚠️  Web scraper workflow failed!"
+          echo "Check the logs for details"
+          # You can add Slack/email notifications here
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Web Scraper Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Listings Collected**: ${{ steps.scraper.outputs.listing_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+

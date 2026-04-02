@@ -1,0 +1,156 @@
+name: Real-Time Web Scraper (On-Demand)
+
+on:
+  workflow_dispatch:
+    inputs:
+      search_query:
+        description: 'What to search for (e.g., "iphone", "laptop")'
+        required: true
+        default: 'electronics'
+      pages:
+        description: 'Number of pages to scrape'
+        required: false
+        default: '2'
+  workflow_call:
+    inputs:
+      search_query:
+        description: 'Search query'
+        required: true
+        type: string
+      pages:
+        description: 'Number of pages'
+        required: false
+        type: string
+        default: '2'
+
+concurrency:
+  group: trademe-scraper-${{ github.run_number }}
+  cancel-in-progress: false
+
+jobs:
+  scrape-on-demand:
+    runs-on: ubuntu-latest
+    name: Scrape TradeMe for "${{ inputs.search_query }}"
+    outputs:
+      results: ${{ steps.scraper.outputs.results }}
+      listing_count: ${{ steps.scraper.outputs.listing_count }}
+
+    permissions:
+      contents: write
+      artifacts: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: '.github/scraper/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r .github/scraper/requirements.txt
+
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: Run web scraper for query
+        id: scraper
+        run: |
+          cd .github/scraper
+          python scraper.py \
+            --query "${{ inputs.search_query }}" \
+            --pages ${{ inputs.pages }} \
+            --output "../../search_results.json"
+          
+          # Extract results
+          if [ -f "../../search_results.json" ]; then
+            COUNT=$(python -c "import json; data = json.load(open('../../search_results.json')); print(data['total_count'])")
+            echo "listing_count=$COUNT" >> $GITHUB_OUTPUT
+            
+            # Save results as JSON for output
+            RESULTS=$(cat "../../search_results.json" | base64 -w 0)
+            echo "results=$RESULTS" >> $GITHUB_OUTPUT
+            
+            echo "✅ Successfully scraped $COUNT listings"
+          else
+            echo "listing_count=0" >> $GITHUB_OUTPUT
+            echo "results=" >> $GITHUB_OUTPUT
+            echo "⚠️ WARNING: No results file generated"
+          fi
+
+      - name: Display results
+        if: steps.scraper.outputs.listing_count > 0
+        run: |
+          python << 'EOF'
+          import json
+          from pathlib import Path
+          
+          results_file = Path("search_results.json")
+          if results_file.exists():
+              with open(results_file) as f:
+                  data = json.load(f)
+              
+              print(f"\n📊 Search Results")
+              print(f"Query: ${{ inputs.search_query }}")
+              print(f"Total Found: {data['total_count']}")
+              print(f"Timestamp: {data['timestamp']}\n")
+              
+              if data['total_count'] > 0:
+                  print("Top 5 Results:")
+                  for i, listing in enumerate(data['listings'][:5], 1):
+                      print(f"\n{i}. {listing.get('title', 'N/A')}")
+                      print(f"   Price: {listing.get('priceDisplay', 'N/A')}")
+                      print(f"   Category: {listing.get('category', 'N/A')}")
+                      print(f"   Region: {listing.get('region', 'N/A')}")
+          EOF
+
+      - name: Upload results as artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: search-results-${{ github.run_number }}
+          path: search_results.json
+          retention-days: 7
+
+      - name: Output JSON results
+        id: output
+        if: steps.scraper.outputs.listing_count > 0
+        run: |
+          python << 'EOF'
+          import json
+          
+          with open("search_results.json") as f:
+              data = json.load(f)
+          
+          # Output as JSON for downstream use
+          output = {
+              "success": True,
+              "query": "${{ inputs.search_query }}",
+              "listing_count": data['total_count'],
+              "timestamp": data['timestamp'],
+              "listings": data['listings']
+          }
+          
+          print(json.dumps(output, indent=2))
+          EOF
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🔍 Web Scraper Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Query**: ${{ inputs.search_query }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Pages Scraped**: ${{ inputs.pages }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Results Found**: ${{ steps.scraper.outputs.listing_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[Download Results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+

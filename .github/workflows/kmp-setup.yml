@@ -1,0 +1,144 @@
+name: KMP Project Setup
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/kmp-setup.yml'
+      - '.github/agents/kmp_setup_agent.json'
+
+jobs:
+  kmp-setup:
+    runs-on: ubuntu-latest
+    name: Initialize KMP Project Structure
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Set up Kotlin
+        run: |
+          # Install Kotlin compiler
+          curl -s "https://get.sdkman.io" | bash
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          sdk install kotlin
+      
+      - name: Initialize Gradle wrapper
+        run: |
+          gradle wrapper --gradle-version latest
+      
+      - name: Create KMP project structure
+        run: |
+          # Create shared module
+          mkdir -p shared/src/{commonMain,commonTest,androidMain,androidTest,iosMain,iosTest}
+          mkdir -p shared/src/commonMain/{kotlin,resources}
+          mkdir -p shared/src/androidMain/kotlin
+          mkdir -p shared/src/iosMain/kotlin
+          
+          # Create android module
+          mkdir -p androidApp/src/main/{kotlin,res}
+          mkdir -p androidApp/src/main/kotlin/com/trademe/android
+          
+          # Create iOS module placeholder
+          mkdir -p iosApp
+      
+      - name: Create build.gradle.kts
+        run: |
+          cat > shared/build.gradle.kts << 'EOF'
+          plugins {
+              kotlin("multiplatform") version "1.9.20"
+              id("com.android.library") version "8.1.0"
+          }
+
+          kotlin {
+              androidTarget()
+              
+              iosX64()
+              iosArm64()
+              iosSimulatorArm64()
+              
+              sourceSets {
+                  commonMain.dependencies {
+                      implementation("io.ktor:ktor-client-core:2.3.0")
+                      implementation("io.ktor:ktor-client-json:2.3.0")
+                      implementation("io.ktor:ktor-client-serialization:2.3.0")
+                  }
+                  
+                  androidMain.dependencies {
+                      implementation("io.ktor:ktor-client-android:2.3.0")
+                  }
+                  
+                  iosMain.dependencies {
+                      implementation("io.ktor:ktor-client-darwin:2.3.0")
+                  }
+              }
+          }
+
+          android {
+              namespace = "com.trademe.shared"
+              compileSdk = 34
+              defaultConfig {
+                  minSdk = 24
+              }
+          }
+          EOF
+      
+      - name: Create root build.gradle.kts
+        run: |
+          cat > build.gradle.kts << 'EOF'
+          plugins {
+              id("org.jetbrains.kotlin.multiplatform") version "1.9.20" apply false
+              id("com.android.library") version "8.1.0" apply false
+              id("com.android.application") version "8.1.0" apply false
+          }
+
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+      
+      - name: Create settings.gradle.kts
+        run: |
+          cat > settings.gradle.kts << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "TradeMe"
+          include(":shared")
+          include(":androidApp")
+          EOF
+      
+      - name: Create commit with project structure
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "feat: initialize KMP project structure" || echo "No changes to commit"
+          git push || echo "Nothing to push"
+
