@@ -1,0 +1,5 @@
+{
+  "name": "KMPProjectSetupAgent",
+  "description": "Specialized agent for configuring Kotlin Multiplatform project structure with shared module for common code and platform modules for Android/iOS.",
+  "task": "Set up the KMP project structure, including creating the shared module for common code (API client, data models) and platform-specific modules for Android and iOS UI implementations."
+}

@@ -1,0 +1,5 @@
+{
+  "name": "SearchIntegrationAgent",
+  "description": "Specialized agent for integrating search functionality to fetch and display results in the UI.",
+  "task": "Integrate the search functionality by connecting the UI search input to the API client, fetching listings, and populating the results list with title, price, and image."
+}

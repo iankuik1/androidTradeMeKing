@@ -1,0 +1,5 @@
+{
+  "name": "DataModelsAgent",
+  "description": "Specialized agent for defining data models for TradeMe listings in the shared module.",
+  "task": "Define Kotlin data classes in the shared module for TradeMe listings, including fields for title, price, and image URL."
+}

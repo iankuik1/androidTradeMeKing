@@ -1,0 +1,5 @@
+{
+  "name": "TradeMeAPIClientAgent",
+  "description": "Specialized agent for implementing TradeMe API client in the shared module, handling authentication and search endpoints.",
+  "task": "Implement the TradeMe API client in the shared KMP module, including authentication setup (e.g., OAuth) and methods for searching listings."
+}

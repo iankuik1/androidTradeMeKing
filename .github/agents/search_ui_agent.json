@@ -1,0 +1,5 @@
+{
+  "name": "SearchUIAgent",
+  "description": "Specialized agent for building search interface UI components in platform-specific modules.",
+  "task": "Build the search interface UI components using Android Compose for Android and SwiftUI for iOS, including a search input field and a list view for results."
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ImageLoadingAgent",
+  "description": "Specialized agent for adding image loading and caching for listing thumbnails across platforms.",
+  "task": "Implement image loading and caching for listing thumbnails in the shared module or platform-specific code, ensuring efficient display of images in the list."
+}
